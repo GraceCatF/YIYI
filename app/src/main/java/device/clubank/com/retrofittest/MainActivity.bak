@@ -1,0 +1,218 @@
+package device.clubank.com.retrofittest;
+
+import android.content.Context;
+import android.os.Bundle;
+import android.support.v7.widget.LinearLayoutManager;
+import android.support.v7.widget.RecyclerView;
+import android.text.TextUtils;
+import android.view.View;
+import android.view.WindowManager;
+import android.view.inputmethod.InputMethodManager;
+import android.widget.EditText;
+import android.widget.Toast;
+
+import com.clubank.device.common.utlis.MyCallback;
+import com.clubank.device.data.remote.ApiResponse;
+import com.clubank.device.data.remote.ApiService;
+import com.clubank.device.data.remote.model.BaseConfig;
+import com.clubank.device.data.remote.model.MemberInfo;
+import com.clubank.device.data.remote.model.ReposInfo;
+import com.clubank.device.data.remote.model.RequestToken;
+import com.clubank.device.data.remote.model.Token;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
+
+import retrofit2.Response;
+
+
+public class MainActivity extends BaseActivity {
+
+
+    private ApiService apiservice;
+    private UserInfoAdatper adapter;
+    private RecyclerView reclist;
+    private  ArrayList memberData;
+    private String oAuth="client_id=bf40a4fc4cd92aae2edb&client_secret=fb3eeeedbb548ec1d1a220989091be1262917014";
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
+        apiservice = getService();
+    //    getCode();
+
+    }
+
+
+ /**
+     *获取code需设置回调地址服务器处理
+     */
+    public void getCode(){
+        apiservice.getCode(BaseConfig.CLIENT_ID,BaseConfig.CALLBACK_URL,"","fasdfasf","true").enqueue(new MyCallback<Token>(this,
+                "getCode",true));
+    }
+    /**
+     *获取令牌
+     */
+    public void  postToken(){
+        apiservice.postToken(new RequestToken()).enqueue(new MyCallback<Token>(this,
+                "postToken",true));
+    }
+
+
+
+    /**
+     * 搜索功能
+     */
+    public void searchUser(View v) {
+        hideSoftKeyboard();
+        String inputUser = ((EditText) findViewById(R.id.inputUser)).getText().toString();
+        if (TextUtils.isEmpty(inputUser))
+            Toast.makeText(this, getString(R.string.search_hit), Toast.LENGTH_SHORT).show();
+        else
+            refreshData(inputUser);
+
+
+    }
+
+    /**
+     *编程偏好
+     */
+    public void  getRepos(int index,String url){
+     apiservice.getRepos(url+"?"+oAuth).enqueue(new MyCallback<ArrayList<ReposInfo>>(this,
+                "getRepos"+","+index,false));
+
+    }
+
+
+    /**
+     * 搜索
+     * @param inputUser
+     */
+    public void refreshData(String inputUser) {
+        apiservice.searchUser(BaseConfig.SEARCH_URL_START + inputUser +
+                BaseConfig.SEARCH_URL_END+"&"+oAuth).enqueue(new MyCallback<ApiResponse<ArrayList<MemberInfo>>>(this,
+                "searchUser", true));
+
+    }
+
+    /**
+     * 成功
+     */
+    @Override
+    public void onSuc(String op, Response response) {
+        super.onSuc(op, response);
+
+        if (op.equals("searchUser")) {
+            ApiResponse<ArrayList<MemberInfo>> apiResponse = (ApiResponse<ArrayList<MemberInfo>>) response.body();
+            if(apiResponse.total_count==0){
+                Toast.makeText(this, getString(R.string.not_data), Toast.LENGTH_SHORT).show();
+                return;
+            }
+            memberData= apiResponse.getitems();
+            showMemberInfo();
+
+
+        } else if(op.equals("getCode")){
+            Token token=(Token)response.body();
+            postToken();
+        }else if(op.equals("postToken")){
+
+          /*Token token=(Token)response.body();
+          BaseConfig.TOKEN=token.access_token;*/
+
+        }else {//getRepos
+            ArrayList<ReposInfo> data = (ArrayList<ReposInfo>)
+                    response.body();
+            //op.split(",")[1] 当前加载编程偏好的用户index
+            showRepos(data,Integer.parseInt(op.split(",")[1]));
+        }
+
+
+    }
+
+
+    /**
+     * 失败
+     * @param op
+     * @param message
+     */
+    @Override
+    public void onFail(String op, String message) {
+        super.onFail(op, message);
+        Toast.makeText(this, getString(R.string.other_error), Toast.LENGTH_SHORT).show();
+
+
+    }
+
+
+    public void showMemberInfo() {
+
+        reclist = (RecyclerView) findViewById(R.id.list);
+        adapter = new UserInfoAdatper(this, memberData);
+        LinearLayoutManager layoutManager = new LinearLayoutManager(this );
+        reclist.setLayoutManager(layoutManager);
+        reclist.setAdapter(adapter);
+
+    }
+
+    //整理数据结构，通知list更新偏好语言
+    public void showRepos(ArrayList data,int index){
+        StringBuffer buf=new StringBuffer(data.size());
+        for (int i=0;i<data.size();i++){
+            ReposInfo rinfo=  (ReposInfo) data.get(i);
+            if(!TextUtils.isEmpty(rinfo.language)){
+                buf.append(rinfo.language+",");
+            }
+
+        }
+        String laguages=buf.toString().substring(0, buf.length() - 1);
+        MemberInfo  info    =(MemberInfo)memberData.get(index);
+        info.language=laguages;
+        info.oftenLanguage=oftenLanguage(laguages.split(","));
+        memberData.set(index,info);
+        adapter.notifyDataSetChanged();
+    }
+
+    //整理使用频繁语言
+    public String oftenLanguage(String[] laguages){
+        String oftenLanguage="";
+        int sortingCount=0;//比较使用次数
+
+        Map<String,Integer>map = new HashMap<String,Integer>();
+        for (int i = 0; i < laguages.length; i++) {
+            if (map.containsKey(laguages[i])) {
+                map.put(laguages[i], map.get(laguages[i]) + 1);
+            } else {
+                map.put(laguages[i],1);
+            }
+
+        }
+
+        Iterator<Map.Entry<String, Integer>> iter = map.entrySet().iterator();
+        while (iter.hasNext()) {
+            Map.Entry<String,Integer> entry =  iter.next();
+            if (entry.getValue()>sortingCount){
+                sortingCount=entry.getValue();
+                oftenLanguage=entry.getKey();
+            }
+
+        }
+            return oftenLanguage;
+    }
+
+
+   //隐藏软键盘
+   public  void hideSoftKeyboard() {
+       if (this.getWindow().getAttributes().softInputMode != WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN) {
+           if (this.getCurrentFocus() != null) {
+               InputMethodManager inputMethodManager = (InputMethodManager) this.getSystemService(Context
+                       .INPUT_METHOD_SERVICE);
+               inputMethodManager.hideSoftInputFromWindow(this.getCurrentFocus().getWindowToken(),
+                       InputMethodManager.HIDE_NOT_ALWAYS);
+           }
+       }
+   }
+}
